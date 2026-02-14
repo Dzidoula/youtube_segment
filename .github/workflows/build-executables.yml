@@ -22,7 +22,7 @@ jobs:
           - os: windows-latest
             artifact_name: yt-segment-gui.exe
             asset_name: yt-segment-gui-windows.exe
-          - os: macos-latest
+          - os: macos-13
             artifact_name: yt-segment-gui
             asset_name: yt-segment-gui-macos
 
