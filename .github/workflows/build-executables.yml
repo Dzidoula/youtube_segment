@@ -48,16 +48,19 @@ jobs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        Invoke-WebRequest -Uri ${{ matrix.ffmpeg_url }} -OutFile ffmpeg.zip
+        Invoke-WebRequest -Uri "${{ matrix.ffmpeg_url }}" -OutFile ffmpeg.zip
+        if (!(Test-Path ffmpeg.zip) -or (Get-Item ffmpeg.zip).Length -lt 1000) { throw "Download failed or returned HTML" }
         Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_temp
-        Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Copy-Item -Destination .
+        $ffmpegExe = Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+        Copy-Item -Path $ffmpegExe.FullName -Destination .
         Remove-Item ffmpeg.zip
         Remove-Item -Recurse ffmpeg_temp
 
     - name: Download FFmpeg (Linux)
       if: runner.os == 'Linux'
       run: |
-        curl -L ${{ matrix.ffmpeg_url }} -o ffmpeg.tar.xz
+        curl -L "${{ matrix.ffmpeg_url }}" -o ffmpeg.tar.xz
+        if [ $(stat -c%s "ffmpeg.tar.xz") -lt 1000 ]; then echo "Download failed"; exit 1; fi
         tar -xf ffmpeg.tar.xz
         find . -name ffmpeg -type f -executable -exec cp {} . \;
         chmod +x ffmpeg
@@ -65,9 +68,16 @@ jobs:
     - name: Download FFmpeg (macOS)
       if: runner.os == 'macOS'
       run: |
-        curl -L ${{ matrix.ffmpeg_url }} -o ffmpeg.zip
+        curl -L "${{ matrix.ffmpeg_url }}" -o ffmpeg.zip
+        if [ $(stat -f%z "ffmpeg.zip") -lt 1000 ]; then echo "Download failed"; exit 1; fi
         unzip ffmpeg.zip
-        chmod +x ffmpeg
+        # Certain sources for mac put ffmpeg in a folder or directly in the zip
+        if [ -f ffmpeg ]; then
+          chmod +x ffmpeg
+        else
+          find . -name ffmpeg -type f -executable -exec cp {} . \;
+          chmod +x ffmpeg
+        fi
 
     - name: Build with PyInstaller (Linux/macOS)
       if: runner.os != 'Windows'
@@ -89,19 +99,10 @@ jobs:
           --hidden-import=youtube_segment_downloader.cli `
           youtube_segment_downloader_gui.py
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.asset_name }}
-        path: dist/${{ matrix.artifact_name }}
-
-    - name: Upload to release
+    - name: Upload to Release
       if: github.event_name == 'release'
-      uses: actions/upload-release-asset@v1
+      uses: softprops/action-gh-release@v2
+      with:
+        files: dist/${{ matrix.artifact_name }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: dist/${{ matrix.artifact_name }}
-        asset_name: ${{ matrix.asset_name }}
-        asset_content_type: application/octet-stream
