@@ -19,12 +19,15 @@ jobs:
           - os: ubuntu-latest
             artifact_name: yt-segment-gui-linux
             asset_name: yt-segment-gui-linux
+            ffmpeg_url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
           - os: windows-latest
             artifact_name: yt-segment-gui.exe
             asset_name: yt-segment-gui-windows.exe
+            ffmpeg_url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
           - os: macos-latest
             artifact_name: yt-segment-gui
             asset_name: yt-segment-gui-macos
+            ffmpeg_url: https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip
 
     steps:
     - name: Checkout code
@@ -41,10 +44,36 @@ jobs:
         pip install -e .
         pip install pyinstaller
 
+    - name: Download FFmpeg (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        Invoke-WebRequest -Uri ${{ matrix.ffmpeg_url }} -OutFile ffmpeg.zip
+        Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_temp
+        Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Copy-Item -Destination .
+        Remove-Item ffmpeg.zip
+        Remove-Item -Recurse ffmpeg_temp
+
+    - name: Download FFmpeg (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        curl -L ${{ matrix.ffmpeg_url }} -o ffmpeg.tar.xz
+        tar -xf ffmpeg.tar.xz
+        find . -name ffmpeg -type f -executable -exec cp {} . \;
+        chmod +x ffmpeg
+
+    - name: Download FFmpeg (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        curl -L ${{ matrix.ffmpeg_url }} -o ffmpeg.zip
+        unzip ffmpeg.zip
+        chmod +x ffmpeg
+
     - name: Build with PyInstaller (Linux/macOS)
       if: runner.os != 'Windows'
       run: |
         pyinstaller --onefile --windowed --name=${{ matrix.artifact_name }} \
+          --add-binary "ffmpeg:." \
           --hidden-import=youtube_segment_downloader \
           --hidden-import=youtube_segment_downloader.downloader \
           --hidden-import=youtube_segment_downloader.cli \
@@ -54,6 +83,7 @@ jobs:
       if: runner.os == 'Windows'
       run: |
         pyinstaller --onefile --windowed --name=yt-segment-gui `
+          --add-binary "ffmpeg.exe;." `
           --hidden-import=youtube_segment_downloader `
           --hidden-import=youtube_segment_downloader.downloader `
           --hidden-import=youtube_segment_downloader.cli `

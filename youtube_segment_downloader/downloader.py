@@ -53,6 +53,25 @@ def validate_url(url):
     return url
 
 
+def get_ffmpeg_path():
+    """
+    Retourne le chemin vers le binaire ffmpeg.
+    Cherche d'abord dans les fichiers packagés par PyInstaller (_MEIPASS), 
+    puis dans le système.
+    """
+    if hasattr(sys, '_MEIPASS'):
+        # Mode PyInstaller
+        bundle_dir = sys._MEIPASS
+        # Tester les noms courants selon l'OS
+        for name in ['ffmpeg', 'ffmpeg.exe']:
+            p = Path(bundle_dir) / name
+            if p.exists():
+                return str(p)
+    
+    # Mode normal ou si non trouvé dans le pack
+    return 'ffmpeg'
+
+
 def download_segment(url, start_time, end_time, output_file=None, verbose=True):
     """
     Télécharge un segment d'une vidéo YouTube en utilisant yt-dlp comme bibliothèque Python
@@ -86,20 +105,24 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True):
     if output_file is None:
         output_file = f"segment_{start_time.replace(':', '-')}_{end_time.replace(':', '-')}.mp4"
     
+    # Obtenir le chemin de ffmpeg
+    ffmpeg_path = get_ffmpeg_path()
+    
     # Vérifier que ffmpeg est installé
     try:
-        subprocess.run(['ffmpeg', '-version'], 
+        subprocess.run([ffmpeg_path, '-version'], 
                       capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         raise RuntimeError(
-            "ffmpeg n'est pas installé. Installation: sudo apt install ffmpeg (Linux) "
-            "ou brew install ffmpeg (Mac)"
+            f"ffmpeg n'est pas installé (utilisé: {ffmpeg_path}). "
+            "Installation: sudo apt install ffmpeg (Linux) ou brew install ffmpeg (Mac)"
         )
 
     # Options pour yt-dlp
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'merge_output_format': 'mp4',
+        'ffmpeg_location': ffmpeg_path,
         'outtmpl': output_file,
         'download_sections': [{
             'start_time': start_seconds,
