@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 import yt_dlp
 import sys
+import os
 
 
 def time_to_seconds(time_str):
@@ -57,17 +58,28 @@ def get_ffmpeg_path():
     """
     Retourne le chemin vers le binaire ffmpeg.
     Cherche d'abord dans les fichiers packagés par PyInstaller (_MEIPASS), 
-    puis dans le système.
+    puis dans les emplacements système courants,
+    enfin se replie sur la commande 'ffmpeg'.
     """
     if hasattr(sys, '_MEIPASS'):
         # Mode PyInstaller
         bundle_dir = sys._MEIPASS
-        # Tester les noms courants selon l'OS
         for name in ['ffmpeg', 'ffmpeg.exe']:
             p = Path(bundle_dir) / name
             if p.exists():
                 return str(p)
     
+    # Chemins système courants
+    common_paths = [
+        '/usr/bin/ffmpeg',
+        '/usr/local/bin/ffmpeg',
+        'C:\\ffmpeg\\bin\\ffmpeg.exe',
+        os.path.join(os.path.expanduser('~'), 'bin', 'ffmpeg')
+    ]
+    for path in common_paths:
+        if Path(path).exists():
+            return path
+            
     # Mode normal ou si non trouvé dans le pack
     return 'ffmpeg'
 
