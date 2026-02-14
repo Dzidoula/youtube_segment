@@ -118,31 +118,26 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True, 
         try:
             subprocess.run([ffmpeg_path, '-version'], capture_output=True, check=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
-            raise RuntimeError(f"FFmpeg introuvable à : {ffmpeg_path}")
+            error_msg = f"FFmpeg introuvable à : {ffmpeg_path}. Veuillez l'installer."
+            if logger: logger.error(error_msg)
+            raise RuntimeError(error_msg)
 
         # Configuration optimisée de yt-dlp
         ydl_opts = {
-            # On prend le meilleur MP4 possible
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
             'ffmpeg_location': ffmpeg_path,
             'outtmpl': output_file,
-            
-            # LA clé : demander uniquement la section au serveur (DASH/HLS seeking)
             'download_sections': [{
                 'start_time': start_seconds,
                 'end_time': end_seconds,
                 'title': 'segment'
             }],
             'force_keyframes_at_cuts': True,
-            
-            # Logs et progression
             'logger': logger,
             'progress_hooks': [progress_hook] if progress_hook else [],
             'quiet': not verbose and logger is None,
             'no_warnings': not verbose and logger is None,
-            
-            # Paramètres de stabilité
             'retries': 10,
             'fragment_retries': 10,
         }
@@ -156,8 +151,11 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True, 
         return Path(output_file).exists()
             
     except Exception as e:
-        if verbose:
-            print(f"❌ Erreur critique : {e}")
+        error_msg = str(e)
+        if logger:
+            logger.error(error_msg)
+        elif verbose:
+            print(f"❌ Erreur critique : {error_msg}")
         return False
 
 # Alias pour corriger une potentielle erreur de frappe si nécessaire dans le futur
