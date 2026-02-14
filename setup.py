@@ -11,7 +11,7 @@ long_description = (this_directory / "README.md").read_text(encoding='utf-8')
 
 setup(
     name="youtube-segment-downloader",
-    version="1.1.0",
+    version="1.2.0",
     author="Daniel",
     author_email="",  # Ajoutez votre email si vous voulez
     description="Téléchargez des segments spécifiques de vidéos YouTube en MP4",

@@ -84,108 +84,80 @@ def get_ffmpeg_path():
     return 'ffmpeg'
 
 
-def download_segment(url, start_time, end_time, output_file=None, verbose=True, logger=None):
+def download_segment(url, start_time, end_time, output_file=None, verbose=True, logger=None, progress_hook=None):
     """
-    Télécharge un segment d'une vidéo YouTube en utilisant yt-dlp comme bibliothèque Python
+    Télécharge un segment d'une vidéo YouTube avec une efficacité maximale.
     
     Args:
         url: URL de la vidéo YouTube
-        start_time: Temps de début (format "MM:SS" ou "HH:MM:SS")
-        end_time: Temps de fin (format "MM:SS" ou "HH:MM:SS")
-        output_file: Nom du fichier de sortie (optionnel)
-        verbose: Afficher les messages de progression
-        logger: Objet logger pour yt-dlp (optionnel)
+        start_time: Temps de début ("MM:SS" ou "HH:MM:SS")
+        end_time: Temps de fin ("MM:SS" ou "HH:MM:SS")
+        output_file: Nom du fichier de sortie
+        verbose: Affichage console
+        logger: Logger personnalisé pour yt-dlp
+        progress_hook: Fonction appelée à chaque mise à jour de progression
         
     Returns:
-        bool: True si le téléchargement a réussi, False sinon
-        
-    Raises:
-        ValueError: Si les paramètres sont invalides
-        RuntimeError: Si ffmpeg n'est pas installé
+        bool: Succès ou échec
     """
-    # Valider l'URL
-    url = validate_url(url)
-    
-    # Convertir les temps en secondes
-    start_seconds = time_to_seconds(start_time)
-    end_seconds = time_to_seconds(end_time)
-    duration = end_seconds - start_seconds
-    
-    if duration <= 0:
-        raise ValueError("Le temps de fin doit être après le temps de début")
-    
-    # Définir le nom du fichier de sortie
-    if output_file is None:
-        output_file = f"segment_{start_time.replace(':', '-')}_{end_time.replace(':', '-')}.mp4"
-    
-    # Obtenir le chemin de ffmpeg
-    ffmpeg_path = get_ffmpeg_path()
-    
-    # Vérifier que ffmpeg est installé
     try:
-        subprocess.run([ffmpeg_path, '-version'], 
-                      capture_output=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        raise RuntimeError(
-            f"ffmpeg n'est pas installé (utilisé: {ffmpeg_path}). "
-            "Installation: sudo apt install ffmpeg (Linux) ou brew install ffmpeg (Mac)"
-        )
+        url = validate_url(url)
+        start_seconds = time_to_seconds(start_time)
+        end_seconds = time_to_seconds(end_time)
+        duration = end_seconds - start_seconds
+        
+        if duration <= 0:
+            raise ValueError("Le temps de fin doit être après le temps de début")
+        
+        if output_file is None:
+            output_file = f"segment_{start_time.replace(':', '-')}_{end_time.replace(':', '-')}.mp4"
+        
+        ffmpeg_path = get_ffmpeg_path()
+        
+        # Vérification ffmpeg (indispensable pour le découpage)
+        try:
+            subprocess.run([ffmpeg_path, '-version'], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            raise RuntimeError(f"FFmpeg introuvable à : {ffmpeg_path}")
 
-    # Options pour yt-dlp - OPTIMISÉES POUR LE DÉCOUPAGE EFFICACE
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'merge_output_format': 'mp4',
-        'ffmpeg_location': ffmpeg_path,
-        'outtmpl': output_file,
-        'download_sections': [{
-            'start_time': start_seconds,
-            'end_time': end_seconds,
-            'title': 'segment'
-        }],
-        # Options pour forcer le téléchargement par sections (évite de tout charger)
-        'concurrent_fragment_downloads': 5,
-        'force_keyframes_at_cuts': True,
-        'quiet': not verbose and logger is None,
-        'no_warnings': not verbose and logger is None,
-        'logger': logger,
-        # Argument spécifique pour s'assurer que ffmpeg est utilisé pour le "seeking" distant
-        'external_downloader': {
-            'default': 'ffmpeg',
-        },
-        'external_downloader_args': {
-            'ffmpeg': [
-                '-ss', str(start_seconds),
-                '-to', str(end_seconds),
-            ],
-        },
-    }
+        # Configuration optimisée de yt-dlp
+        ydl_opts = {
+            # On prend le meilleur MP4 possible
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'merge_output_format': 'mp4',
+            'ffmpeg_location': ffmpeg_path,
+            'outtmpl': output_file,
+            
+            # LA clé : demander uniquement la section au serveur (DASH/HLS seeking)
+            'download_sections': [{
+                'start_time': start_seconds,
+                'end_time': end_seconds,
+                'title': 'segment'
+            }],
+            'force_keyframes_at_cuts': True,
+            
+            # Logs et progression
+            'logger': logger,
+            'progress_hooks': [progress_hook] if progress_hook else [],
+            'quiet': not verbose and logger is None,
+            'no_warnings': not verbose and logger is None,
+            
+            # Paramètres de stabilité
+            'retries': 10,
+            'fragment_retries': 10,
+        }
 
-    if verbose and logger is None:
-        print(f"📹 Téléchargement du segment: {start_time} → {end_time}")
-        print(f"⏱️  Durée: {duration} secondes")
-        print(f"📁 Fichier de sortie: {output_file}\n")
+        if verbose and logger is None:
+            print(f"🚀 Démarrage du téléchargement optimisé ({start_time} -> {end_time})")
 
-    try:
-        with yt_dl_YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
         
-        if Path(output_file).exists():
-            if verbose:
-                print(f"\n✅ Segment téléchargé avec succès: {output_file}")
-                print(f"📁 Taille: {Path(output_file).stat().st_size / (1024*1024):.2f} MB")
-            return True
-        else:
-            if verbose:
-                print("\n❌ Erreur: Le fichier n'a pas été créé")
-            return False
+        return Path(output_file).exists()
             
     except Exception as e:
         if verbose:
-            print(f"\n❌ Erreur lors du téléchargement: {e}")
-        return False
-    except KeyboardInterrupt:
-        if verbose:
-            print("\n⚠️  Téléchargement annulé par l'utilisateur")
+            print(f"❌ Erreur critique : {e}")
         return False
 
 # Alias pour corriger une potentielle erreur de frappe si nécessaire dans le futur
