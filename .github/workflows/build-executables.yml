@@ -49,7 +49,6 @@ jobs:
       shell: pwsh
       run: |
         Invoke-WebRequest -Uri "${{ matrix.ffmpeg_url }}" -OutFile ffmpeg.zip
-        if (!(Test-Path ffmpeg.zip) -or (Get-Item ffmpeg.zip).Length -lt 1000) { throw "Download failed or returned HTML" }
         Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_temp
         $ffmpegExe = Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Select-Object -First 1
         Copy-Item -Path $ffmpegExe.FullName -Destination .
@@ -60,7 +59,6 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         curl -L "${{ matrix.ffmpeg_url }}" -o ffmpeg.tar.xz
-        if [ $(stat -c%s "ffmpeg.tar.xz") -lt 1000 ]; then echo "Download failed"; exit 1; fi
         tar -xf ffmpeg.tar.xz
         find . -name ffmpeg -type f -executable -exec cp {} . \;
         chmod +x ffmpeg
@@ -69,15 +67,9 @@ jobs:
       if: runner.os == 'macOS'
       run: |
         curl -L "${{ matrix.ffmpeg_url }}" -o ffmpeg.zip
-        if [ $(stat -f%z "ffmpeg.zip") -lt 1000 ]; then echo "Download failed"; exit 1; fi
         unzip ffmpeg.zip
-        # Certain sources for mac put ffmpeg in a folder or directly in the zip
-        if [ -f ffmpeg ]; then
-          chmod +x ffmpeg
-        else
-          find . -name ffmpeg -type f -executable -exec cp {} . \;
-          chmod +x ffmpeg
-        fi
+        find . -name ffmpeg -type f -executable -exec cp {} . \;
+        chmod +x ffmpeg
 
     - name: Build with PyInstaller (Linux/macOS)
       if: runner.os != 'Windows'
@@ -104,5 +96,6 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: dist/${{ matrix.artifact_name }}
+        tag_name: ${{ github.event.release.tag_name }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
