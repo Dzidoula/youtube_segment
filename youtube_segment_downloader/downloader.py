@@ -119,7 +119,7 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True, 
             "Installation: sudo apt install ffmpeg (Linux) ou brew install ffmpeg (Mac)"
         )
 
-    # Options pour yt-dlp
+    # Options pour yt-dlp - OPTIMISÉES POUR LE DÉCOUPAGE EFFICACE
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'merge_output_format': 'mp4',
@@ -130,10 +130,22 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True, 
             'end_time': end_seconds,
             'title': 'segment'
         }],
+        # Options pour forcer le téléchargement par sections (évite de tout charger)
+        'concurrent_fragment_downloads': 5,
         'force_keyframes_at_cuts': True,
         'quiet': not verbose and logger is None,
         'no_warnings': not verbose and logger is None,
         'logger': logger,
+        # Argument spécifique pour s'assurer que ffmpeg est utilisé pour le "seeking" distant
+        'external_downloader': {
+            'default': 'ffmpeg',
+        },
+        'external_downloader_args': {
+            'ffmpeg': [
+                '-ss', str(start_seconds),
+                '-to', str(end_seconds),
+            ],
+        },
     }
 
     if verbose and logger is None:
