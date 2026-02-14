@@ -5,6 +5,8 @@ Module principal pour le téléchargement de segments YouTube
 import subprocess
 import re
 from pathlib import Path
+import yt_dlp
+import sys
 
 
 def time_to_seconds(time_str):
@@ -53,7 +55,7 @@ def validate_url(url):
 
 def download_segment(url, start_time, end_time, output_file=None, verbose=True):
     """
-    Télécharge un segment d'une vidéo YouTube
+    Télécharge un segment d'une vidéo YouTube en utilisant yt-dlp comme bibliothèque Python
     
     Args:
         url: URL de la vidéo YouTube
@@ -67,7 +69,7 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True):
         
     Raises:
         ValueError: Si les paramètres sont invalides
-        RuntimeError: Si yt-dlp ou ffmpeg n'est pas installé
+        RuntimeError: Si ffmpeg n'est pas installé
     """
     # Valider l'URL
     url = validate_url(url)
@@ -80,22 +82,9 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True):
     if duration <= 0:
         raise ValueError("Le temps de fin doit être après le temps de début")
     
-    if verbose:
-        print(f"📹 Téléchargement du segment: {start_time} → {end_time}")
-        print(f"⏱️  Durée: {duration} secondes")
-    
     # Définir le nom du fichier de sortie
     if output_file is None:
         output_file = f"segment_{start_time.replace(':', '-')}_{end_time.replace(':', '-')}.mp4"
-    
-    # Vérifier que yt-dlp est installé
-    try:
-        subprocess.run(['yt-dlp', '--version'], 
-                      capture_output=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        raise RuntimeError(
-            "yt-dlp n'est pas installé. Installation: pip install yt-dlp"
-        )
     
     # Vérifier que ffmpeg est installé
     try:
@@ -106,24 +95,30 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True):
             "ffmpeg n'est pas installé. Installation: sudo apt install ffmpeg (Linux) "
             "ou brew install ffmpeg (Mac)"
         )
-    
-    # Commande yt-dlp avec options de découpage
-    command = [
-        'yt-dlp',
-        '--download-sections',
-        f'*{start_seconds}-{end_seconds}',
-        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        '--merge-output-format', 'mp4',
-        '-o', output_file,
-        url
-    ]
-    
+
+    # Options pour yt-dlp
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'merge_output_format': 'mp4',
+        'outtmpl': output_file,
+        'download_sections': [{
+            'start_time': start_seconds,
+            'end_time': end_seconds,
+            'title': 'segment'
+        }],
+        'force_keyframes_at_cuts': True,
+        'quiet': not verbose,
+        'no_warnings': not verbose,
+    }
+
     if verbose:
-        print(f"🔧 Commande: {' '.join(command)}\n")
-    
+        print(f"📹 Téléchargement du segment: {start_time} → {end_time}")
+        print(f"⏱️  Durée: {duration} secondes")
+        print(f"📁 Fichier de sortie: {output_file}\n")
+
     try:
-        # Exécuter la commande
-        result = subprocess.run(command, check=True)
+        with yt_dl_YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
         
         if Path(output_file).exists():
             if verbose:
@@ -135,7 +130,7 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True):
                 print("\n❌ Erreur: Le fichier n'a pas été créé")
             return False
             
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         if verbose:
             print(f"\n❌ Erreur lors du téléchargement: {e}")
         return False
@@ -143,3 +138,6 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True):
         if verbose:
             print("\n⚠️  Téléchargement annulé par l'utilisateur")
         return False
+
+# Alias pour corriger une potentielle erreur de frappe si nécessaire dans le futur
+yt_dl_YoutubeDL = yt_dlp.YoutubeDL
