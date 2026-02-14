@@ -22,7 +22,7 @@ jobs:
           - os: windows-latest
             artifact_name: yt-segment-gui.exe
             asset_name: yt-segment-gui-windows.exe
-          - os: macos-13
+          - os: macos-12
             artifact_name: yt-segment-gui
             asset_name: yt-segment-gui-macos
 
@@ -41,24 +41,33 @@ jobs:
         pip install -e .
         pip install pyinstaller
 
-    - name: Set up FFmpeg
-      uses: federicocarboni/setup-ffmpeg@v3
+    - name: Install FFmpeg (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update && sudo apt-get install -y ffmpeg
+        cp $(which ffmpeg) .
+        chmod +x ffmpeg
 
-    - name: Copy FFmpeg binary (Windows)
+    - name: Install FFmpeg (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        # FFmpeg is usually pre-installed on GitHub runners, let's just find and copy it
+        FFMPEG_PATH=$(which ffmpeg)
+        if [ -z "$FFMPEG_PATH" ]; then
+          brew install ffmpeg
+          FFMPEG_PATH=$(which ffmpeg)
+        fi
+        cp "$FFMPEG_PATH" .
+        chmod +x ffmpeg
+
+    - name: Install FFmpeg (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
+        choco install ffmpeg --no-progress
         $ffmpegPath = Get-Command ffmpeg | Select-Object -ExpandProperty Source
         Copy-Item -Path $ffmpegPath -Destination .
         if (!(Test-Path ffmpeg.exe)) { throw "ffmpeg.exe copy failed" }
-
-    - name: Copy FFmpeg binary (Linux/macOS)
-      if: runner.os != 'Windows'
-      run: |
-        FFMPEG_PATH=$(which ffmpeg)
-        cp "$FFMPEG_PATH" .
-        chmod +x ffmpeg
-        if [ ! -f ffmpeg ]; then echo "ffmpeg copy failed"; exit 1; fi
 
     - name: Build with PyInstaller (Linux/macOS)
       if: runner.os != 'Windows'
