@@ -72,7 +72,7 @@ def get_ffmpeg_path():
     return 'ffmpeg'
 
 
-def download_segment(url, start_time, end_time, output_file=None, verbose=True):
+def download_segment(url, start_time, end_time, output_file=None, verbose=True, logger=None):
     """
     Télécharge un segment d'une vidéo YouTube en utilisant yt-dlp comme bibliothèque Python
     
@@ -82,6 +82,7 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True):
         end_time: Temps de fin (format "MM:SS" ou "HH:MM:SS")
         output_file: Nom du fichier de sortie (optionnel)
         verbose: Afficher les messages de progression
+        logger: Objet logger pour yt-dlp (optionnel)
         
     Returns:
         bool: True si le téléchargement a réussi, False sinon
@@ -130,11 +131,12 @@ def download_segment(url, start_time, end_time, output_file=None, verbose=True):
             'title': 'segment'
         }],
         'force_keyframes_at_cuts': True,
-        'quiet': not verbose,
-        'no_warnings': not verbose,
+        'quiet': not verbose and logger is None,
+        'no_warnings': not verbose and logger is None,
+        'logger': logger,
     }
 
-    if verbose:
+    if verbose and logger is None:
         print(f"📹 Téléchargement du segment: {start_time} → {end_time}")
         print(f"⏱️  Durée: {duration} secondes")
         print(f"📁 Fichier de sortie: {output_file}\n")

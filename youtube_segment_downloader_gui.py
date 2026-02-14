@@ -10,6 +10,7 @@ import threading
 import os
 from pathlib import Path
 import sys
+import queue
 
 # Import du module de téléchargement
 try:
@@ -20,12 +21,39 @@ except ImportError:
     from youtube_segment_downloader import download_segment, validate_url, time_to_seconds
 
 
+class YtdlpLogger:
+    """Interface de logging pour yt-dlp qui renvoie les messages à la GUI"""
+    def __init__(self, gui):
+        self.gui = gui
+
+    def debug(self, msg):
+        # Pour éviter de polluer avec les messages de progression bruts (très fréquents)
+        if not msg.startswith('[download]'):
+            self.gui.queue_log(f"DEBUG: {msg}", 'info')
+        else:
+            # On peut quand même logger un résumé de la progression
+            if '%' in msg:
+                self.gui.queue_log(msg, 'info')
+
+    def info(self, msg):
+        self.gui.queue_log(msg, 'info')
+
+    def warning(self, msg):
+        self.gui.queue_log(f"⚠️ {msg}", 'warning')
+
+    def error(self, msg):
+        self.gui.queue_log(f"❌ {msg}", 'error')
+
+
 class YouTubeSegmentDownloaderGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("YouTube Segment Downloader")
-        self.root.geometry("600x500")
+        self.root.geometry("600x550")
         self.root.resizable(False, False)
+        
+        # File d'attente pour les messages (thread-safety)
+        self.msg_queue = queue.Queue()
         
         # Variables
         self.url_var = tk.StringVar()
@@ -35,6 +63,9 @@ class YouTubeSegmentDownloaderGUI:
         self.is_downloading = False
         
         self.create_widgets()
+        
+        # Démarrer la vérification de la queue
+        self.root.after(100, self.process_queue)
         
     def create_widgets(self):
         # Style
@@ -113,30 +144,20 @@ class YouTubeSegmentDownloaderGUI:
         self.download_btn = ttk.Button(
             main_frame,
             text="📥 Télécharger le Segment",
-            command=self.start_download,
-            style='Accent.TButton'
+            command=self.start_download
         )
         self.download_btn.grid(row=7, column=0, columnspan=3, pady=10, ipadx=20, ipady=10)
         
         # Zone de log
-        log_frame = ttk.LabelFrame(main_frame, text="Logs", padding="10")
+        log_frame = ttk.LabelFrame(main_frame, text="Logs détaillés (yt-dlp)", padding="10")
         log_frame.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
         
-        self.log_text = tk.Text(log_frame, height=8, width=60, wrap=tk.WORD, state='disabled')
+        self.log_text = tk.Text(log_frame, height=10, width=65, wrap=tk.WORD, state='disabled', font=('Courier', 8))
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         scrollbar = ttk.Scrollbar(log_frame, orient=tk.VERTICAL, command=self.log_text.yview)
         scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         self.log_text['yscrollcommand'] = scrollbar.set
-        
-        # Info footer
-        footer_label = ttk.Label(
-            main_frame,
-            text="💡 Astuce: ffmpeg doit être installé sur votre système",
-            font=('Arial', 8, 'italic'),
-            foreground='gray'
-        )
-        footer_label.grid(row=9, column=0, columnspan=3, pady=(10, 0))
         
     def browse_output(self):
         """Ouvre un dialogue pour choisir le fichier de sortie"""
@@ -148,15 +169,40 @@ class YouTubeSegmentDownloaderGUI:
         if filename:
             self.output_file_var.set(filename)
     
-    def log(self, message, level='info'):
-        """Ajoute un message au log"""
+    def queue_log(self, message, level='info'):
+        """Ajoute un message à la file d'attente pour affichage sûr"""
+        self.msg_queue.put(('log', message, level))
+        
+    def update_status(self, message, color='black'):
+        """Prépare la mise à jour du statut via la file d'attente"""
+        self.msg_queue.put(('status', message, color))
+
+    def process_queue(self):
+        """Lit la file d'attente et met à jour l'UI dans le thread principal"""
+        try:
+            while True:
+                task = self.msg_queue.get_nowait()
+                if task[0] == 'log':
+                    msg, level = task[1], task[2]
+                    self._real_log(msg, level)
+                elif task[0] == 'status':
+                    msg, color = task[1], task[2]
+                    self._real_update_status(msg, color)
+                self.msg_queue.task_done()
+        except queue.Empty:
+            pass
+        finally:
+            self.root.after(100, self.process_queue)
+
+    def _real_log(self, message, level='info'):
+        """Mise à jour réelle de la zone de log (doit être sur thread principal)"""
         self.log_text.config(state='normal')
         
         colors = {
-            'info': 'black',
+            'info': '#333333',
             'success': 'green',
             'error': 'red',
-            'warning': 'orange'
+            'warning': '#aa6600'
         }
         
         tag = f'tag_{level}'
@@ -166,13 +212,12 @@ class YouTubeSegmentDownloaderGUI:
         self.log_text.see(tk.END)
         self.log_text.config(state='disabled')
         
-    def update_status(self, message, color='black'):
-        """Met à jour le label de statut"""
+    def _real_update_status(self, message, color='black'):
+        """Mise à jour réelle du statut (doit être sur thread principal)"""
         self.status_label.config(text=message, foreground=color)
         
     def validate_inputs(self):
         """Valide les entrées utilisateur"""
-        # Vérifier l'URL
         url = self.url_var.get().strip()
         if not url:
             messagebox.showerror("Erreur", "Veuillez entrer une URL YouTube")
@@ -184,18 +229,15 @@ class YouTubeSegmentDownloaderGUI:
             messagebox.showerror("Erreur", f"URL invalide: {e}")
             return False
         
-        # Vérifier les temps
         start_time = self.start_time_var.get().strip()
         end_time = self.end_time_var.get().strip()
         
         try:
             start_seconds = time_to_seconds(start_time)
             end_seconds = time_to_seconds(end_time)
-            
             if end_seconds <= start_seconds:
                 messagebox.showerror("Erreur", "Le temps de fin doit être après le temps de début")
                 return False
-                
         except ValueError as e:
             messagebox.showerror("Erreur", f"Format de temps invalide: {e}")
             return False
@@ -203,34 +245,35 @@ class YouTubeSegmentDownloaderGUI:
         return True
     
     def start_download(self):
-        """Démarre le téléchargement dans un thread séparé"""
         if self.is_downloading:
-            messagebox.showwarning("Attention", "Un téléchargement est déjà en cours")
             return
         
         if not self.validate_inputs():
             return
         
-        # Démarrer le téléchargement dans un thread
         self.is_downloading = True
         self.download_btn.config(state='disabled')
         self.progress_bar.start(10)
+        self.log_text.config(state='normal')
+        self.log_text.delete('1.0', tk.END)
+        self.log_text.config(state='disabled')
         
         thread = threading.Thread(target=self.download_thread, daemon=True)
         thread.start()
     
     def download_thread(self):
-        """Thread de téléchargement"""
+        """Thread de téléchargement avec logger passé à yt-dlp"""
         try:
             url = self.url_var.get().strip()
             start_time = self.start_time_var.get().strip()
             end_time = self.end_time_var.get().strip()
             output_file = self.output_file_var.get().strip() or None
             
-            self.log(f"📹 Début du téléchargement...", 'info')
-            self.log(f"URL: {url}", 'info')
-            self.log(f"Segment: {start_time} → {end_time}", 'info')
-            self.update_status("Téléchargement en cours...", 'blue')
+            self.queue_log(f"🚀 Initialisation du téléchargement...", 'info')
+            self.update_status("Téléchargement en cours... (voir logs)", 'blue')
+            
+            # Créer le logger pour yt-dlp
+            ydl_logger = YtdlpLogger(self)
             
             # Télécharger
             success = download_segment(
@@ -238,32 +281,32 @@ class YouTubeSegmentDownloaderGUI:
                 start_time=start_time,
                 end_time=end_time,
                 output_file=output_file,
-                verbose=False
+                verbose=True,
+                logger=ydl_logger
             )
             
             if success:
                 output = output_file or f"segment_{start_time.replace(':', '-')}_{end_time.replace(':', '-')}.mp4"
-                self.log(f"✅ Téléchargement réussi: {output}", 'success')
-                self.update_status("Téléchargement terminé avec succès!", 'green')
-                messagebox.showinfo("Succès", f"Segment téléchargé avec succès!\n\nFichier: {output}")
+                self.queue_log(f"✅ TERMINE: {output}", 'success')
+                self.update_status("Téléchargement fini !", 'green')
+                messagebox.showinfo("Succès", f"Fichier sauvegardé: {output}")
             else:
-                self.log("❌ Échec du téléchargement", 'error')
-                self.update_status("Échec du téléchargement", 'red')
-                messagebox.showerror("Erreur", "Le téléchargement a échoué. Vérifiez les logs.")
+                self.queue_log("❌ Échec du téléchargement (consultez les logs ci-dessus)", 'error')
+                self.update_status("Échec (voir erreurs)", 'red')
                 
         except Exception as e:
-            self.log(f"❌ Erreur: {str(e)}", 'error')
-            self.update_status("Erreur lors du téléchargement", 'red')
-            messagebox.showerror("Erreur", f"Une erreur s'est produite:\n{str(e)}")
+            self.queue_log(f"🔥 ERREUR CRITIQUE: {str(e)}", 'error')
+            self.update_status("Erreur système", 'red')
+            messagebox.showerror("Erreur", str(e))
         
         finally:
             self.is_downloading = False
+            # Synchronisé via tkinter root.after dans le thread principal par nature du widget
             self.root.after(0, self.progress_bar.stop)
             self.root.after(0, lambda: self.download_btn.config(state='normal'))
 
 
 def main():
-    """Point d'entrée principal"""
     root = tk.Tk()
     app = YouTubeSegmentDownloaderGUI(root)
     root.mainloop()

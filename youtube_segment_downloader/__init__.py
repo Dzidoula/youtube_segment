@@ -2,7 +2,7 @@
 YouTube Segment Downloader - Téléchargez des segments spécifiques de vidéos YouTube
 """
 
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 __author__ = "Daniel"
 __license__ = "MIT"
 
